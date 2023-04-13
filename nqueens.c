@@ -90,6 +90,9 @@ solutions, this function prints one of the
 feasible solutions.*/
 bool solveNQ()
 {
+    double starttime, stoptime;
+    starttime = omp_get_wtime();
+
     int board[N][N] = {{0, 0, 0, 0},
                        {0, 0, 0, 0},
                        {0, 0, 0, 0},
@@ -101,6 +104,9 @@ bool solveNQ()
         return false;
     }
 
+    stoptime = omp_get_wtime();
+    printf("Tempo de execucao: %3.2f segundos\n", stoptime - starttime);
+
     printSolution(board);
     return true;
 }
@@ -109,14 +115,7 @@ bool solveNQ()
 int main()
 {
 
-    double starttime, stoptime;
-    starttime = omp_get_wtime();
-
     solveNQ();
-
-    stoptime = omp_get_wtime();
-    printf("Tempo de execucao: %3.2f segundos\n", stoptime - starttime);
-
     return 0;
 }
 
