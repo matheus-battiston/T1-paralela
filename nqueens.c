@@ -1,8 +1,9 @@
 /* C program to solve N Queen Problem using
 backtracking */
-#define N 30
+#define N 28
 #include <stdbool.h>
 #include <stdio.h>
+#include <omp.h>
 
 /* A utility function to print solution */
 void printSolution(int board[N][N])
@@ -107,7 +108,15 @@ bool solveNQ()
 // driver program to test above function
 int main()
 {
+
+    double starttime, stoptime;
+    starttime = omp_get_wtime();
+
     solveNQ();
+
+    stoptime = omp_get_wtime();
+    printf("Tempo de execucao: %3.2f segundos\n", stoptime - starttime);
+
     return 0;
 }
 
