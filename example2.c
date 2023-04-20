@@ -3,8 +3,13 @@
 #include <stdlib.h>
 #include <time.h>
 #include <sys/time.h>
+#include <omp.h>
 
 #include "kmeans.h"
+
+int NUMERO_K = 10;
+int NPTSINCLUSTER = 10000000;
+int NUMERO_CORES = 8;
 
 typedef struct point
 {
@@ -57,6 +62,9 @@ static void pt_centroid(const Pointer *objs, const int *clusters, size_t num_obj
 
 int main(int nargs, char **args)
 {
+	double starttime, stoptime;
+	omp_set_num_threads(NUMERO_CORES);
+
 	kmeans_config config;
 	kmeans_result result;
 	int i, j;
@@ -66,8 +74,8 @@ int main(int nargs, char **args)
 	int print_results = 0;
 	unsigned long start;
 
-	int nptsincluster = 100000;
-	int k = 12;
+	int nptsincluster = NPTSINCLUSTER;
+	int k = NUMERO_K;
 
 	srand(time(NULL));
 
@@ -93,8 +101,8 @@ int main(int nargs, char **args)
 	{
 		for (i = 0; i < nptsincluster; i++)
 		{
-			double u1 = 1.0 * random() / RAND_MAX;
-			double u2 = 1.0 * random() / RAND_MAX;
+			double u1 = 1.0 * i;
+			double u2 = 1.0 * i;
 			double z1 = spread * j + sqrt(-2 * log2(u1)) * cos(2 * M_PI * u2);
 			double z2 = spread * j + sqrt(-2 * log2(u1)) * sin(2 * M_PI * u2);
 			int n = j * nptsincluster + i;
@@ -123,27 +131,33 @@ int main(int nargs, char **args)
 
 	/* run k-means! */
 	start = time(NULL);
+	starttime = omp_get_wtime();
+
 	result = kmeans(&config);
 
-	printf("\n");
-	printf("Iteration count: %d\n", config.total_iterations);
-	printf("     Time taken: %ld seconds\n", (time(NULL) - start));
-	printf(" Iterations/sec: %.3g\n", (1.0 * config.total_iterations) / (time(NULL) - start));
-	printf("\n");
+	stoptime = omp_get_wtime();
 
-	/* print results */
-	if (print_results)
-	{
-		for (i = 0; i < config.num_objs; i++)
-		{
-			point *pt = (point *)(config.objs[i]);
+	printf("\nTempo de execucao: %3.2f segundos\n\n", stoptime - starttime);
 
-			if (config.objs[i])
-				printf("%g\t%g\t%d\n", pt->x, pt->y, config.clusters[i]);
-			else
-				printf("N\tN\t%d\n", config.clusters[i]);
-		}
-	}
+	// printf("\n");
+	// printf("Iteration count: %d\n", config.total_iterations);
+	// printf("     Time taken: %ld seconds\n", (time(NULL) - start));
+	// printf(" Iterations/sec: %.3g\n", (1.0 * config.total_iterations) / (time(NULL) - start));
+	// printf("\n");
+
+	// /* print results */
+	// if (print_results)
+	// {
+	// 	for (i = 0; i < config.num_objs; i++)
+	// 	{
+	// 		point *pt = (point *)(config.objs[i]);
+
+	// 		if (config.objs[i])
+	// 			printf("%g\t%g\t%d\n", pt->x, pt->y, config.clusters[i]);
+	// 		else
+	// 			printf("N\tN\t%d\n", config.clusters[i]);
+	// 	}
+	// }
 
 	free(config.objs);
 	free(config.clusters);

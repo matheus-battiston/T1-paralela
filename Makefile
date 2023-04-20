@@ -1,7 +1,8 @@
 OBJS=kmeans.o
 EXE=example1 example2
+CC=gcc-12
 
-CFLAGS=-g -O0
+CFLAGS=-fopenmp -g -O0
 
 all: $(EXE)
 

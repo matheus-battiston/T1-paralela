@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <omp.h>
 
 #include "kmeans.h"
 
@@ -24,6 +25,8 @@ static void
 update_r(kmeans_config *config)
 {
 	int i;
+
+#pragma omp parallel for
 
 	for (i = 0; i < config->num_objs; i++)
 	{
@@ -72,6 +75,8 @@ static void
 update_means(kmeans_config *config)
 {
 	int i;
+
+#pragma omp parallel for
 
 	for (i = 0; i < config->k; i++)
 	{
