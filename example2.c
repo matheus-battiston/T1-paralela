@@ -4,12 +4,11 @@
 #include <time.h>
 #include <sys/time.h>
 #include <omp.h>
-
 #include "kmeans.h"
 
-int NUMERO_K = 10;
+int NUMERO_K = 22;
 int NPTSINCLUSTER = 10000000;
-int NUMERO_CORES = 8;
+int NUMERO_CORES = 4;
 
 typedef struct point
 {
