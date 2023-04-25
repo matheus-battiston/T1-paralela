@@ -21,7 +21,7 @@ update_r(kmeans_config *config)
 {
 	int i;
 
-#pragma omp parallel for schedule(guided) private(config) // muito bom
+#pragma omp parallel for schedule(static) private(i) shared(config) // muito bom
 
 	for (i = 0; i < config->num_objs; i++)
 	{
@@ -71,7 +71,7 @@ update_means(kmeans_config *config)
 {
 	int i;
 
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static) shared(config)
 
 	for (i = 0; i < config->k; i++)
 	{
