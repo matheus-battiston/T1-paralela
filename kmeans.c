@@ -21,7 +21,7 @@ update_r(kmeans_config *config)
 {
 	int i;
 
-#pragma omp parallel for schedule(static) private(i) shared(config) // muito bom
+#pragma omp parallel for schedule(dynamic, 100) private(i) shared(config) // muito bom
 
 	for (i = 0; i < config->num_objs; i++)
 	{
@@ -121,12 +121,12 @@ kmeans(kmeans_config *config)
 		 * if all the cluster numbers are unchanged since last time,
 		 * we are at a stable solution, so we can stop here
 		 */
-		if (memcmp(clusters_last, config->clusters, clusters_sz) == 0)
-		{
-			kmeans_free(clusters_last);
-			config->total_iterations = iterations;
-			return KMEANS_OK;
-		}
+		// if (memcmp(clusters_last, config->clusters, clusters_sz) == 0)
+		// {
+		// 	kmeans_free(clusters_last);
+		// 	config->total_iterations = iterations;
+		// 	return KMEANS_OK;
+		// }
 
 		if (iterations++ > config->max_iterations)
 		{

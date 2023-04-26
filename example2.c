@@ -6,9 +6,9 @@
 #include <omp.h>
 #include "kmeans.h"
 
-int NUMERO_K = 22;
-int NPTSINCLUSTER = 10000000;
-int NUMERO_CORES = 4;
+int NUMERO_K = 12;
+int NPTSINCLUSTER = 100000;
+int NUMERO_CORES = 1;
 
 typedef struct point
 {
