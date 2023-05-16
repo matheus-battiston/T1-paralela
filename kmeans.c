@@ -13,65 +13,109 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <omp.h>
 #include "kmeans.h"
 
-static void
-update_r(kmeans_config *config)
+#include <mpi.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "kmeans.h"
+
+#define MASTER_RANK 0
+#define KMEANS_TAG 1
+
+void master(kmeans_config *config)
 {
-	int i;
+	int num_procs, num_slaves;
+	MPI_Status status;
 
-#pragma omp parallel for schedule(dynamic, 100) private(i) shared(config) // muito bom
+	MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
+	num_slaves = num_procs - 1;
 
-	for (i = 0; i < config->num_objs; i++)
+	// Dividir os dados entre os escravos
+	int objs_per_slave = config->num_objs / num_slaves;
+	int extra_objs = config->num_objs % num_slaves;
+	int send_count = objs_per_slave;
+
+	for (int slave_rank = 1; slave_rank <= num_slaves; slave_rank++)
 	{
+		// Ajustar o número de objetos enviados caso haja sobra
+		if (slave_rank <= extra_objs)
+			send_count++;
 
-		double distance, curr_distance;
-		int cluster, curr_cluster;
-		Pointer obj;
+		// Enviar o número de objetos que o escravo receberá
+		MPI_Send(&send_count, 1, MPI_INT, slave_rank, KMEANS_TAG, MPI_COMM_WORLD);
 
-		assert(config->objs != NULL);
-		assert(config->num_objs > 0);
-		assert(config->centers);
-		assert(config->clusters);
-
-		obj = config->objs[i];
-
-		/*
-		 * Don't try to cluster NULL objects, just add them
-		 * to the "unclusterable cluster"
-		 */
-		if (!obj)
-		{
-			config->clusters[i] = KMEANS_NULL_CLUSTER;
-			continue;
-		}
-
-		/* Initialize with distance to first cluster */
-		curr_distance = (config->distance_method)(obj, config->centers[0]);
-		curr_cluster = 0;
-
-		/* Check all other cluster centers and find the nearest */
-		for (cluster = 1; cluster < config->k; cluster++)
-		{
-			distance = (config->distance_method)(obj, config->centers[cluster]);
-			if (distance < curr_distance)
-			{
-				curr_distance = distance;
-				curr_cluster = cluster;
-			}
-		}
-		/* Store the nearest cluster this object is in */
-		config->clusters[i] = curr_cluster;
+		// Enviar os objetos para o escravo
+		MPI_Send(&(config->objs[(slave_rank - 1) * objs_per_slave]), send_count, MPI_POINTER, slave_rank, KMEANS_TAG, MPI_COMM_WORLD);
 	}
+
+	// Receber os resultados dos escravos e atualizar os centros de cluster
+	for (int slave_rank = 1; slave_rank <= num_slaves; slave_rank++)
+	{
+		int recv_count;
+		MPI_Recv(&recv_count, 1, MPI_INT, slave_rank, KMEANS_TAG, MPI_COMM_WORLD, &status);
+
+		int *slave_clusters = malloc(sizeof(int) * recv_count);
+		MPI_Recv(slave_clusters, recv_count, MPI_INT, slave_rank, KMEANS_TAG, MPI_COMM_WORLD, &status);
+
+		// Atualizar os centros de cluster usando os resultados do escravo
+		for (int i = 0; i < recv_count; i++)
+		{
+			int obj_index = (slave_rank - 1) * objs_per_slave + i;
+			config->clusters[obj_index] = slave_clusters[i];
+		}
+
+		free(slave_clusters);
+	}
+}
+
+void slave(kmeans_config *config)
+{
+	int num_objs, recv_count;
+	MPI_Status status;
+
+	MPI_Recv(&recv_count, 1, MPI_INT, MASTER_RANK, KMEANS_TAG, MPI_COMM_WORLD, &status);
+
+	// Receber os objetos do mestre
+	config->num_objs = recv_count;
+	config->objs = malloc(sizeof(Pointer) * recv_count);
+	MPI_Recv(config->objs, recv_count, MPI_POINTER, MASTER_RANK, KMEANS_TAG, MPI_COMM_WORLD, &status);
+
+	// Executar o k-means no subconjunto de objetos
+	update_r(config);
+
+	// Enviar os resultados para o mestre
+	MPI_Send(&recv_count, 1, MPI_INT, MASTER_RANK, KMEANS_TAG, MPI_COMM_WORLD);
+	MPI_Send(config->clusters, recv_count, MPI_INT, MASTER_RANK, KMEANS_TAG, MPI_COMM_WORLD);
+
+	free(config->objs);
+}
+
+kmeans_result kmeans_parallel(kmeans_config *config)
+{
+	int rank;
+
+	MPI_Init(NULL, NULL);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+	if (rank == MASTER_RANK)
+	{
+		master(config);
+	}
+	else
+	{
+		slave(config);
+	}
+
+	MPI_Finalize();
+	return KMEANS_OK;
 }
 
 static void
 update_means(kmeans_config *config)
 {
 	int i;
-
-#pragma omp parallel for schedule(static) shared(config)
 
 	for (i = 0; i < config->k; i++)
 	{

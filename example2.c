@@ -3,12 +3,10 @@
 #include <stdlib.h>
 #include <time.h>
 #include <sys/time.h>
-#include <omp.h>
 #include "kmeans.h"
 
 int NUMERO_K = 12;
-int NPTSINCLUSTER = 100000;
-int NUMERO_CORES = 1;
+int NPTSINCLUSTER = 200000;
 
 typedef struct point
 {
@@ -62,7 +60,6 @@ static void pt_centroid(const Pointer *objs, const int *clusters, size_t num_obj
 int main(int nargs, char **args)
 {
 	double starttime, stoptime;
-	omp_set_num_threads(NUMERO_CORES);
 
 	kmeans_config config;
 	kmeans_result result;
