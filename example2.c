@@ -4,9 +4,11 @@
 #include <time.h>
 #include <sys/time.h>
 #include "kmeans.h"
+#include "mpi.h"
 
 int NUMERO_K = 12;
 int NPTSINCLUSTER = 200000;
+int NUM_CONJUNTOS = 60;
 
 typedef struct point
 {
@@ -60,105 +62,152 @@ static void pt_centroid(const Pointer *objs, const int *clusters, size_t num_obj
 int main(int nargs, char **args)
 {
 	double starttime, stoptime;
-
-	kmeans_config config;
-	kmeans_result result;
-	int i, j;
-	int spread = 3;
-	point *pts;
-	point *init;
-	int print_results = 0;
-	unsigned long start;
-
 	int nptsincluster = NPTSINCLUSTER;
 	int k = NUMERO_K;
 
-	srand(time(NULL));
+	kmeans_config config[NUM_CONJUNTOS];
+	kmeans_result result[NUM_CONJUNTOS];
 
-	/* Constants */
-	config.k = k;
-	config.num_objs = config.k * nptsincluster;
-	config.max_iterations = 200;
-	config.distance_method = pt_distance;
-	config.centroid_method = pt_centroid;
-
-	/* Inputs for K-means */
-	config.objs = calloc(config.num_objs, sizeof(Pointer));
-	config.centers = calloc(config.k, sizeof(Pointer));
-	config.clusters = calloc(config.num_objs, sizeof(int));
-
-	/* Storage for raw data */
-	pts = calloc(config.num_objs, sizeof(point));
-	init = calloc(config.k, sizeof(point));
-
-	/* Create test data! */
-	/* Populate with K gaussian clusters of data */
-	for (j = 0; j < config.k; j++)
+	for (int conjunto = 0; conjunto < NUM_CONJUNTOS; conjunto++)
 	{
-		for (i = 0; i < nptsincluster; i++)
+		int i, j;
+		int spread = 3;
+		point *pts;
+		point *init;
+		int print_results = 0;
+		unsigned long start;
+		srand(time(NULL));
+
+		/* Constants */
+		config[conjunto].k = k;
+		config[conjunto].num_objs = config[conjunto].k * nptsincluster;
+		config[conjunto].max_iterations = 200;
+		config[conjunto].distance_method = pt_distance;
+		config[conjunto].centroid_method = pt_centroid;
+
+		/* Inputs for K-means */
+		config[conjunto].objs = calloc(config[conjunto].num_objs, sizeof(Pointer));
+		config[conjunto].centers = calloc(config[conjunto].k, sizeof(Pointer));
+		config[conjunto].clusters = calloc(config[conjunto].num_objs, sizeof(int));
+
+		/* Storage for raw data */
+		pts = calloc(config[conjunto].num_objs, sizeof(point));
+		init = calloc(config[conjunto].k, sizeof(point));
+
+		/* Create test data! */
+		/* Populate with K gaussian clusters of data */
+		for (j = 0; j < config[conjunto].k; j++)
 		{
-			double u1 = 1.0 * i;
-			double u2 = 1.0 * i;
-			double z1 = spread * j + sqrt(-2 * log2(u1)) * cos(2 * M_PI * u2);
-			double z2 = spread * j + sqrt(-2 * log2(u1)) * sin(2 * M_PI * u2);
-			int n = j * nptsincluster + i;
+			for (i = 0; i < nptsincluster; i++)
+			{
+				double u1 = 1.0 * i;
+				double u2 = 1.0 * i;
+				double z1 = spread * j + sqrt(-2 * log2(u1)) * cos(2 * M_PI * u2);
+				double z2 = spread * j + sqrt(-2 * log2(u1)) * sin(2 * M_PI * u2);
+				int n = j * nptsincluster + i;
 
+				/* Populate raw data */
+				pts[n].x = z1;
+				pts[n].y = z2;
+
+				/* Pointer to raw data */
+				config[conjunto].objs[n] = &(pts[n]);
+			}
+		}
+
+		/* Populate the initial means vector with random start points */
+		for (i = 0; i < config[conjunto].k; i++)
+		{
+			int r = lround(config[conjunto].num_objs * (1.0 * rand() / RAND_MAX));
 			/* Populate raw data */
-			pts[n].x = z1;
-			pts[n].y = z2;
+			init[i] = pts[r];
+			/* Pointers to raw data */
+			config[conjunto].centers[i] = &(init[i]);
 
-			/* Pointer to raw data */
-			config.objs[n] = &(pts[n]);
+			if (print_results)
+				printf("center[%d]\t%g\t%g\n", i, init[i].x, init[i].y);
 		}
 	}
 
-	/* Populate the initial means vector with random start points */
-	for (i = 0; i < config.k; i++)
-	{
-		int r = lround(config.num_objs * (1.0 * rand() / RAND_MAX));
-		/* Populate raw data */
-		init[i] = pts[r];
-		/* Pointers to raw data */
-		config.centers[i] = &(init[i]);
+	/* run k-means! */
+	MPI_Init(&argc, &argv);
+	MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
 
-		if (print_results)
-			printf("center[%d]\t%g\t%g\n", i, init[i].x, init[i].y);
+	if (num_procs < 2)
+	{
+		fprintf(stderr, "O número de processos deve ser pelo menos 2.\n");
+		MPI_Finalize();
+		return 1;
 	}
 
-	/* run k-means! */
-	start = time(NULL);
-	starttime = omp_get_wtime();
+	srand(time(NULL) + my_rank);
 
-	result = kmeans(&config);
+	if (my_rank == 0)
+	{
+		// Processo mestre
 
-	stoptime = omp_get_wtime();
+		// Distribuir os conjuntos de pontos entre os processos escravos
+		int conjuntos_por_escravo = NUM_CONJUNTOS / (num_procs - 1);
+		int conjuntos_restantes = NUM_CONJUNTOS % (num_procs - 1);
 
-	printf("\nTempo de execucao: %3.2f segundos\n\n", stoptime - starttime);
+		for (int escravo = 1; escravo < num_procs; escravo++)
+		{
+			int conjuntos_para_enviar = conjuntos_por_escravo;
+			if (escravo <= conjuntos_restantes)
+			{
+				conjuntos_para_enviar++;
+			}
 
-	// printf("\n");
-	// printf("Iteration count: %d\n", config.total_iterations);
-	// printf("     Time taken: %ld seconds\n", (time(NULL) - start));
-	// printf(" Iterations/sec: %.3g\n", (1.0 * config.total_iterations) / (time(NULL) - start));
-	// printf("\n");
+			MPI_Send(&conjuntos_para_enviar, 1, MPI_INT, escravo, 0, MPI_COMM_WORLD);
 
-	// /* print results */
-	// if (print_results)
-	// {
-	// 	for (i = 0; i < config.num_objs; i++)
-	// 	{
-	// 		point *pt = (point *)(config.objs[i]);
+			for (int conjunto = 0; conjunto < conjuntos_para_enviar; conjunto++)
+			{
+				kmeans_config config;
+				// Configurar config para o conjunto atual
+				// ...
 
-	// 		if (config.objs[i])
-	// 			printf("%g\t%g\t%d\n", pt->x, pt->y, config.clusters[i]);
-	// 		else
-	// 			printf("N\tN\t%d\n", config.clusters[i]);
-	// 	}
-	// }
+				// Enviar config para o escravo
+				MPI_Send(&config, sizeof(kmeans_config), MPI_BYTE, escravo, conjunto + 1, MPI_COMM_WORLD);
+			}
+		}
 
-	free(config.objs);
-	free(config.clusters);
-	free(config.centers);
+		// Receber resultados dos escravos
+		kmeans_result results[NUM_CONJUNTOS];
+		for (int conjunto = 0; conjunto < NUM_CONJUNTOS; conjunto++)
+		{
+			int escravo = conjunto % (num_procs - 1) + 1;
+			MPI_Recv(&results[conjunto], sizeof(kmeans_result), MPI_BYTE, escravo, conjunto + 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		}
 
-	free(init);
-	free(pts);
+		// Processar resultados recebidos
+		// ...
+
+		// Imprimir resultados
+		// ...
+	}
+	else
+	{
+		// Processo escravo
+
+		// Receber número de conjuntos de pontos a serem processados
+		int conjuntos_a_processar;
+		MPI_Recv(&conjuntos_a_processar, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+		for (int conjunto = 0; conjunto < conjuntos_a_processar; conjunto++)
+		{
+			kmeans_config config;
+			// Receber config do mestre
+			MPI_Recv(&config, sizeof(kmeans_config), MPI_BYTE, 0, conjunto + 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+			// Realizar o processamento do conjunto de pontos
+			kmeans_result result = kmeans(&config);
+
+			// Enviar resultado para o mestre
+			MPI_Send(&result, sizeof(kmeans_result), MPI_BYTE, 0, conjunto + 1, MPI_COMM_WORLD);
+		}
+	}
+
+	MPI_Finalize();
+	return 0;
 }
