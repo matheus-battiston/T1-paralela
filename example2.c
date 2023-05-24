@@ -67,7 +67,7 @@ int main(int nargs, char **args)
 	unsigned long start;
 
 	int nptsincluster = 100000;
-	int k = 12;
+	int k = 6;
 
 	srand(time(NULL));
 
