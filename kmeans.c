@@ -32,6 +32,61 @@ typedef struct
 	int total_iterations;
 } slave_args;
 
+static void
+update_r(kmeans_config *config)
+{
+	int i;
+
+	for (i = 0; i < config->num_objs; i++)
+	{
+		double distance, curr_distance;
+		int cluster, curr_cluster;
+		Pointer obj;
+
+		assert(config->objs != NULL);
+		assert(config->num_objs > 0);
+		assert(config->centers);
+		assert(config->clusters);
+
+		obj = config->objs[i];
+		if (!obj)
+		{
+			config->clusters[i] = KMEANS_NULL_CLUSTER;
+			continue;
+		}
+
+		/* Initialize with distance to first cluster */
+		curr_distance = (config->distance_method)(obj, config->centers[0]);
+		curr_cluster = 0;
+
+		/* Check all other cluster centers and find the nearest */
+		for (cluster = 1; cluster < config->k; cluster++)
+		{
+			distance = (config->distance_method)(obj, config->centers[cluster]);
+			if (distance < curr_distance)
+			{
+				curr_distance = distance;
+				curr_cluster = cluster;
+			}
+		}
+
+		/* Store the nearest cluster this object is in */
+		config->clusters[i] = curr_cluster;
+	}
+}
+
+static void
+update_means(kmeans_config *config)
+{
+	int i;
+
+	for (i = 0; i < config->k; i++)
+	{
+		/* Update the centroid for this cluster */
+		(config->centroid_method)(config->objs, config->clusters, config->num_objs, i, config->centers[i]);
+	}
+}
+
 void slave_kmeans(kmeans_config *config)
 {
 	int iterations = 0;
@@ -142,60 +197,5 @@ kmeans_result kmeans(kmeans_config *config)
 
 			MPI_Send(&(config->total_iterations), 1, MPI_INT, 0, TAG_WORK_RESPONSE, MPI_COMM_WORLD);
 		}
-	}
-}
-
-static void
-update_r(kmeans_config *config)
-{
-	int i;
-
-	for (i = 0; i < config->num_objs; i++)
-	{
-		double distance, curr_distance;
-		int cluster, curr_cluster;
-		Pointer obj;
-
-		assert(config->objs != NULL);
-		assert(config->num_objs > 0);
-		assert(config->centers);
-		assert(config->clusters);
-
-		obj = config->objs[i];
-		if (!obj)
-		{
-			config->clusters[i] = KMEANS_NULL_CLUSTER;
-			continue;
-		}
-
-		/* Initialize with distance to first cluster */
-		curr_distance = (config->distance_method)(obj, config->centers[0]);
-		curr_cluster = 0;
-
-		/* Check all other cluster centers and find the nearest */
-		for (cluster = 1; cluster < config->k; cluster++)
-		{
-			distance = (config->distance_method)(obj, config->centers[cluster]);
-			if (distance < curr_distance)
-			{
-				curr_distance = distance;
-				curr_cluster = cluster;
-			}
-		}
-
-		/* Store the nearest cluster this object is in */
-		config->clusters[i] = curr_cluster;
-	}
-}
-
-static void
-update_means(kmeans_config *config)
-{
-	int i;
-
-	for (i = 0; i < config->k; i++)
-	{
-		/* Update the centroid for this cluster */
-		(config->centroid_method)(config->objs, config->clusters, config->num_objs, i, config->centers[i]);
 	}
 }
