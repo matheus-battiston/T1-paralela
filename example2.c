@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <sys/time.h>
+#include <mpi.h>
 
 #include "kmeans.h"
 
@@ -55,100 +56,129 @@ static void pt_centroid(const Pointer *objs, const int *clusters, size_t num_obj
 	return;
 }
 
-int main(int nargs, char **args)
+int main(int argc, char **argv)
 {
-	kmeans_config config;
-	kmeans_result result;
-	int i, j;
-	int spread = 3;
-	point *pts;
-	point *init;
-	int print_results = 0;
-	unsigned long start;
+	int rank, size;
 
-	int nptsincluster = 100000;
-	int k = 6;
+	MPI_Init(&argc, &argv);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-	srand(time(NULL));
-
-	/* Constants */
-	config.k = k;
-	config.num_objs = config.k * nptsincluster;
-	config.max_iterations = 200;
-	config.distance_method = pt_distance;
-	config.centroid_method = pt_centroid;
-
-	/* Inputs for K-means */
-	config.objs = calloc(config.num_objs, sizeof(Pointer));
-	config.centers = calloc(config.k, sizeof(Pointer));
-	config.clusters = calloc(config.num_objs, sizeof(int));
-
-	/* Storage for raw data */
-	pts = calloc(config.num_objs, sizeof(point));
-	init = calloc(config.k, sizeof(point));
-
-	/* Create test data! */
-	/* Populate with K gaussian clusters of data */
-	for (j = 0; j < config.k; j++)
+	if (size < 2)
 	{
-		for (i = 0; i < nptsincluster; i++)
+		fprintf(stderr, "O programa requer pelo menos 2 processos MPI.\n");
+		MPI_Finalize();
+		return 1;
+	}
+
+	if (rank == 0)
+	{
+		// Código do mestre
+
+		// Configuração do K-means
+		kmeans_config config;
+		// Preencha config com os parâmetros e dados necessários...
+
+		// Distribuição das tarefas
+		int num_slaves = size - 1;
+		int tasks_per_slave = 60 / num_slaves;
+		int remaining_tasks = 60 % num_slaves;
+
+		for (int i = 1; i <= num_slaves; i++)
 		{
-			double u1 = 1.0 * random() / RAND_MAX;
-			double u2 = 1.0 * random() / RAND_MAX;
-			double z1 = spread * j + sqrt(-2 * log2(u1)) * cos(2 * M_PI * u2);
-			double z2 = spread * j + sqrt(-2 * log2(u1)) * sin(2 * M_PI * u2);
-			int n = j * nptsincluster + i;
+			int tasks = tasks_per_slave;
 
-			/* Populate raw data */
-			pts[n].x = z1;
-			pts[n].y = z2;
+			if (remaining_tasks > 0)
+			{
+				tasks++;
+				remaining_tasks--;
+			}
 
-			/* Pointer to raw data */
-			config.objs[n] = &(pts[n]);
+			MPI_Send(&tasks, 1, MPI_INT, i, 0, MPI_COMM_WORLD);
+		}
+
+		// Processamento adicional do mestre...
+
+		// Recebimento dos resultados
+		for (int i = 1; i <= num_slaves; i++)
+		{
+			kmeans_result result;
+			MPI_Recv(&result, sizeof(kmeans_result), MPI_BYTE, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			// Processar o resultado do escravo...
+		}
+	}
+	else
+	{
+		// Código do escravo
+
+		// Solicitar tarefas ao mestre
+		int tasks;
+		MPI_Recv(&tasks, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+		for (int i = 0; i < tasks; i++)
+		{
+			// Gerar conjunto de pontos para o escravo
+			int nptsincluster = 100000;
+			int k = 6;
+			int spread = 3;
+
+			srand(rank * tasks + i);
+
+			// Configuração dos pontos para o escravo
+			kmeans_config config;
+			config.k = k;
+			config.num_objs = config.k * nptsincluster;
+			config.max_iterations = 200;
+			config.distance_method = pt_distance;
+			config.centroid_method = pt_centroid;
+
+			config.objs = calloc(config.num_objs, sizeof(point *));
+			config.centers = calloc(config.k, sizeof(point *));
+			config.clusters = calloc(config.num_objs, sizeof(int));
+
+			point *pts = calloc(config.num_objs, sizeof(point));
+			point *init = calloc(config.k, sizeof(point));
+
+			for (int j = 0; j < config.k; j++)
+			{
+				for (int n = 0; n < nptsincluster; n++)
+				{
+					double u1 = 1.0 * rand() / RAND_MAX;
+					double u2 = 1.0 * rand() / RAND_MAX;
+					double z1 = spread * j + sqrt(-2 * log2(u1)) * cos(2 * M_PI * u2);
+					double z2 = spread * j + sqrt(-2 * log2(u1)) * sin(2 * M_PI * u2);
+					int index = j * nptsincluster + n;
+
+					pts[index].x = z1;
+					pts[index].y = z2;
+
+					config.objs[index] = &(pts[index]);
+				}
+			}
+
+			for (int n = 0; n < config.k; n++)
+			{
+				int r = lround(config.num_objs * (1.0 * rand() / RAND_MAX));
+				init[n] = pts[r];
+				config.centers[n] = &(init[n]);
+			}
+
+			// Executar o kmeans
+			kmeans_result result = kmeans(&config);
+
+			// Enviar o resultado para o mestre
+			MPI_Send(&result, sizeof(kmeans_result), MPI_BYTE, 0, 0, MPI_COMM_WORLD);
+
+			// Liberar memória
+			free(config.objs);
+			free(config.clusters);
+			free(config.centers);
+
+			free(pts);
+			free(init);
 		}
 	}
 
-	/* Populate the initial means vector with random start points */
-	for (i = 0; i < config.k; i++)
-	{
-		int r = lround(config.num_objs * (1.0 * rand() / RAND_MAX));
-		/* Populate raw data */
-		init[i] = pts[r];
-		/* Pointers to raw data */
-		config.centers[i] = &(init[i]);
-
-		if (print_results)
-			printf("center[%d]\t%g\t%g\n", i, init[i].x, init[i].y);
-	}
-
-	/* run k-means! */
-	start = time(NULL);
-	result = kmeans(&config);
-
-	printf("\n");
-	printf("Iteration count: %d\n", config.total_iterations);
-	printf("     Time taken: %ld seconds\n", (time(NULL) - start));
-	printf(" Iterations/sec: %.3g\n", (1.0 * config.total_iterations) / (time(NULL) - start));
-	printf("\n");
-
-	/* print results */
-	if (print_results)
-	{
-		for (i = 0; i < config.num_objs; i++)
-		{
-			point *pt = (point *)(config.objs[i]);
-
-			if (config.objs[i])
-				printf("%g\t%g\t%d\n", pt->x, pt->y, config.clusters[i]);
-			else
-				printf("N\tN\t%d\n", config.clusters[i]);
-		}
-	}
-
-	free(config.objs);
-	free(config.clusters);
-	free(config.centers);
-
-	free(init);
-	free(pts);
+	MPI_Finalize();
+	return 0;
 }

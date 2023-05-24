@@ -13,24 +13,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+
 #include "kmeans.h"
-
-#include <mpi.h>
-
-#define TAG_WORK_REQUEST 1
-#define TAG_WORK_RESPONSE 2
-#define TAG_TERMINATE 3
 
 #ifdef KMEANS_THREADED
 #include <pthread.h>
 #endif
-
-typedef struct
-{
-	int id;
-	kmeans_config *config;
-	int total_iterations;
-} slave_args;
 
 static void
 update_r(kmeans_config *config)
@@ -49,6 +37,11 @@ update_r(kmeans_config *config)
 		assert(config->clusters);
 
 		obj = config->objs[i];
+
+		/*
+		 * Don't try to cluster NULL objects, just add them
+		 * to the "unclusterable cluster"
+		 */
 		if (!obj)
 		{
 			config->clusters[i] = KMEANS_NULL_CLUSTER;
@@ -87,22 +80,56 @@ update_means(kmeans_config *config)
 	}
 }
 
-void slave_kmeans(kmeans_config *config)
+#ifdef KMEANS_THREADED
+
+#endif /* KMEANS_THREADED */
+
+kmeans_result
+kmeans(kmeans_config *config)
 {
 	int iterations = 0;
 	int *clusters_last;
 	size_t clusters_sz = sizeof(int) * config->num_objs;
 
-	clusters_last = (int *)malloc(clusters_sz);
-	assert(clusters_last);
+	assert(config);
+	assert(config->objs);
+	assert(config->num_objs);
+	assert(config->distance_method);
+	assert(config->centroid_method);
+	assert(config->centers);
+	assert(config->k);
+	assert(config->clusters);
+	assert(config->k <= config->num_objs);
+
+	/* Zero out cluster numbers, just in case user forgets */
+	memset(config->clusters, 0, clusters_sz);
+
+	/* Set default max iterations if necessary */
+	if (!config->max_iterations)
+		config->max_iterations = KMEANS_MAX_ITERATIONS;
+
+	/*
+	 * Previous cluster state array. At this time, r doesn't mean anything
+	 * but it's ok
+	 */
+	clusters_last = kmeans_malloc(clusters_sz);
 
 	while (1)
 	{
+		/* Store the previous state of the clustering */
 		memcpy(clusters_last, config->clusters, clusters_sz);
 
+#ifdef KMEANS_THREADED
+		update_r_threaded(config);
+		update_means_threaded(config);
+#else
 		update_r(config);
 		update_means(config);
-
+#endif
+		/*
+		 * if all the cluster numbers are unchanged since last time,
+		 * we are at a stable solution, so we can stop here
+		 */
 		if (memcmp(clusters_last, config->clusters, clusters_sz) == 0)
 		{
 			kmeans_free(clusters_last);
@@ -117,85 +144,8 @@ void slave_kmeans(kmeans_config *config)
 			return KMEANS_EXCEEDED_MAX_ITERATIONS;
 		}
 	}
-}
 
-kmeans_result kmeans(kmeans_config *config)
-{
-	assert(config);
-	assert(config->objs);
-	assert(config->num_objs);
-	assert(config->distance_method);
-	assert(config->centroid_method);
-	assert(config->centers);
-	assert(config->k);
-	assert(config->clusters);
-	assert(config->k <= config->num_objs);
-
-	int num_procs, my_rank;
-	MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
-	MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
-
-	if (my_rank == 0)
-	{
-		// Mestre
-		size_t clusters_sz = sizeof(int) * config->num_objs;
-		memset(config->clusters, 0, clusters_sz);
-
-		if (!config->max_iterations)
-			config->max_iterations = KMEANS_MAX_ITERATIONS;
-
-		int num_slaves = num_procs - 1;
-		int num_objs_per_slave = config->num_objs / num_slaves;
-		int remaining_objs = config->num_objs % num_slaves;
-		int obj_index = 0;
-
-		// Enviar trabalho para os escravos
-		for (int i = 1; i <= num_slaves; i++)
-		{
-			int num_objs_slave = num_objs_per_slave;
-			if (i <= remaining_objs)
-				num_objs_slave++;
-
-			MPI_Send(&num_objs_slave, 1, MPI_INT, i, TAG_WORK_REQUEST, MPI_COMM_WORLD);
-			MPI_Send(&(config->objs[obj_index]), num_objs_slave, MPI_INT, i, TAG_WORK_REQUEST, MPI_COMM_WORLD);
-
-			obj_index += num_objs_slave;
-		}
-
-		// Coletar resultados dos escravos
-		int total_iterations = 0;
-		for (int i = 1; i <= num_slaves; i++)
-		{
-			int iterations;
-			MPI_Recv(&iterations, 1, MPI_INT, i, TAG_WORK_RESPONSE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			total_iterations += iterations;
-		}
-
-		config->total_iterations = total_iterations;
-
-		// Terminar os escravos
-		for (int i = 1; i <= num_slaves; i++)
-		{
-			MPI_Send(NULL, 0, MPI_INT, i, TAG_TERMINATE, MPI_COMM_WORLD);
-		}
-	}
-	else
-	{
-		// Escravo
-		while (1)
-		{
-			int num_objs_slave;
-			MPI_Recv(&num_objs_slave, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-			if (num_objs_slave == 0)
-				break; // Terminar
-
-			config->num_objs = num_objs_slave;
-			MPI_Recv(config->objs, num_objs_slave, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-			slave_kmeans(config);
-
-			MPI_Send(&(config->total_iterations), 1, MPI_INT, 0, TAG_WORK_RESPONSE, MPI_COMM_WORLD);
-		}
-	}
+	kmeans_free(clusters_last);
+	config->total_iterations = iterations;
+	return KMEANS_ERROR;
 }
