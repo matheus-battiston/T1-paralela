@@ -34,6 +34,13 @@ typedef struct
 
 void slave_kmeans(kmeans_config *config)
 {
+	int iterations = 0;
+	int *clusters_last;
+	size_t clusters_sz = sizeof(int) * config->num_objs;
+
+	clusters_last = (int *)malloc(clusters_sz);
+	assert(clusters_last);
+
 	while (1)
 	{
 		memcpy(clusters_last, config->clusters, clusters_sz);
