@@ -1,15 +1,12 @@
 OBJS=kmeans.o
-EXE=example1 example2
+EXE=example2
 
-CFLAGS=-g -O0
+CC=ladcomp -env mpicc
 
 all: $(EXE)
 
 clean:
 	@rm -f *.o $(EXE)
 
-example1: $(OBJS) example1.o
-	$(CC) $(CFLAGS) $^ -o $@
-
 example2: $(OBJS) example2.o
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $^ -o $@
