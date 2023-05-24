@@ -64,6 +64,8 @@ int main(int argc, char **argv)
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 
+	double start_time = MPI_Wtime();
+
 	if (size < 2)
 	{
 		fprintf(stderr, "O programa requer pelo menos 2 processos MPI.\n");
@@ -178,7 +180,11 @@ int main(int argc, char **argv)
 			free(init);
 		}
 	}
-
+	
+	double end_time = MPI_Wtime();
+    double execution_time = end_time - start_time;
+	printf("Tempo de execução total: %lf segundos\n", execution_time);
+	
 	MPI_Finalize();
 	return 0;
 }
