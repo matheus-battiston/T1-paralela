@@ -64,7 +64,6 @@ int main(int argc, char **argv)
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-	double start_time = MPI_Wtime();
 
 	if (size < 2)
 	{
@@ -72,7 +71,8 @@ int main(int argc, char **argv)
 		MPI_Finalize();
 		return 1;
 	}
-
+	
+	double start_time = MPI_Wtime();
 	if (rank == 0)
 	{
 		// Código do mestre
@@ -120,7 +120,7 @@ int main(int argc, char **argv)
 		for (int i = 0; i < tasks; i++)
 		{
 			// Gerar conjunto de pontos para o escravo
-			int nptsincluster = 100000;
+			int nptsincluster = 10000;
 			int k = 6;
 			int spread = 3;
 
@@ -183,8 +183,12 @@ int main(int argc, char **argv)
 	
 	double end_time = MPI_Wtime();
     double execution_time = end_time - start_time;
-	printf("Tempo de execução total: %lf segundos\n", execution_time);
-	
-	MPI_Finalize();
-	return 0;
+    double execution_time_root;
+    MPI_Reduce(&execution_time, &execution_time_root, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
+     if(rank == 0){
+        printf("Tempo de execução total: %.2f segundos\n", execution_time_root);
+    }
+    MPI_Finalize();
+    return 0;
 }
